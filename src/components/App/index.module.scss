@@ -1,6 +1,20 @@
-.container {
-  margin: 10px;
-  height: 60px;
-  border-radius: 4px;
-  box-shadow: 0 0 10px red;
+.setting-button {
+  position: fixed;
+  top: 1em;
+  left: 1em;
+}
+
+.setting-item {
+  margin-top: .5em;
+}
+
+.label::after {
+  content: ":";
+  margin-right: .5em;
+}
+
+.target {
+  &.block {
+    margin-right: 1em;
+  }
 }

@@ -3,8 +3,12 @@
 // 3. 判定是否碰壁、碰自身等
 // 4. 整体优化
 import * as React from "react"
+import { Button, Slider, Switch } from "antd"
 
+import { Poper } from "@Src/components/Poper/index"
 import { resizeToDisplaySize } from "@Src/utils/webgl-utils"
+
+import * as Styles from "./index.module.scss"
 
 type Coords = [number, number]
 
@@ -346,7 +350,7 @@ let lastTime = new Date().getTime()
 let paused = false
 
 const snake = new Snake(UW, UH, XN, YN)
-const gridBorder = new GridBorder(UW, UH, XN, YN)
+const gridBorder = new GridBorder(UW, UH, XN, YN, 2)
 
 const initCanvas = function initCanvas() {
   const { clientWidth, clientHeight } = backCanvas
@@ -408,5 +412,39 @@ animate()
 
 
 export default function App() {
-  return <div>nihao</div>
+  const [poperVisible, setPoperVisible] = React.useState(false)
+  return <div>
+    <Button
+      className={Styles.settingButton}
+      type="ghost"
+      icon="setting"
+      onClick={() => {
+        setPoperVisible(!poperVisible)
+      }}
+    />
+    <Poper state={[poperVisible, setPoperVisible]}>
+      <div>
+        <div className={Styles.settingItem}>
+          <span className={Styles.label}>允许碰撞自身</span>
+          <Switch defaultChecked />
+        </div>
+        <div className={Styles.settingItem}>
+          <span className={Styles.label}>允许碰撞墙壁</span>
+          <Switch defaultChecked />
+        </div>
+        <div className={Styles.settingItem}>
+          <span className={Styles.label}>速度</span>
+          <Slider className={`${Styles.target} ${Styles.block}`} defaultValue={30} min={10} max={100} />
+        </div>
+        <div className={Styles.settingItem}>
+          <span className={Styles.label}>网格数</span>
+          <Slider className={`${Styles.target} ${Styles.block}`} defaultValue={30} min={10} max={100} step={10} />
+        </div>
+        <div className={Styles.settingItem}>
+          <span className={Styles.label}>同时存在食物数</span>
+          <Slider className={`${Styles.target} ${Styles.block}`} defaultValue={30} min={10} max={100} step={10} />
+        </div>
+      </div>
+    </Poper>
+  </div>
 }
