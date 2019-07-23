@@ -12,6 +12,13 @@ import { nonActiveState } from "@Src/utils/index"
 
 import * as Styles from "./index.module.scss"
 
+const scoreElem = document.querySelector("#score") as HTMLDivElement
+const container = document.querySelector("#canvas-container") as HTMLDivElement
+const backCanvas = document.querySelector("#canvas-background") as HTMLCanvasElement
+const backCtx = backCanvas.getContext("2d") as CanvasRenderingContext2D
+const foreCanvas = document.querySelector("#canvas-foreground") as HTMLCanvasElement
+const foreCtx = foreCanvas.getContext("2d") as CanvasRenderingContext2D
+
 const [wrapedEnableSelfCollision, setWrapedEnableSelfCollision] = nonActiveState(true)
 const [wrapedEnableBorderCollision, setWrapedEnableBorderCollision] = nonActiveState(true)
 const [wrapedSpeed, setWrapedSpeed] = nonActiveState(5)
@@ -202,6 +209,8 @@ class GridItem {
 class Snake {
   public static DefaultDir = Dir.None;
 
+  public rawScore = 0;
+
   public state:
       0 // 失败
     | 1 // 进行中
@@ -242,10 +251,14 @@ class Snake {
     if (!(xn === this.xn && yn === this.yn)) {
       this.xn = xn
       this.yn = yn
-      this.food = [0, 0]
+      const gridType = this.grids[0].type
       this.grids = this.nullGrids
+      this.setFood(0, 0)
       this.mapToGrids()
       this.randomSetFoodFromGrids()
+      this.mapToGrid([0, 0], gridType)
+      this.mapToGrid(this.food, GridType.Food)
+      this.render()
     } else {
       /* eslint-disable no-param-reassign */
       this.grids.forEach((gridItem) => {
@@ -257,12 +270,26 @@ class Snake {
   }
 
   public reinit() {
+    this.score = 0
     this.state = 1
     this.curDir = Snake.DefaultDir
     this.rawBody = [[0, 0]]
+    const gridType = GridType.Head
     this.setFood(0, 0)
     this.mapToGrids()
     this.randomSetFoodFromGrids()
+    this.mapToGrid([0, 0], gridType)
+    this.mapToGrid(this.food, GridType.Food)
+    this.render()
+  }
+
+  public get score() {
+    return this.rawScore
+  }
+
+  public set score(val: number) {
+    this.rawScore = val
+    scoreElem.innerText = `score: ${val}`
   }
 
   public get nullGrids() {
@@ -337,22 +364,26 @@ class Snake {
       console.error("撞自己身上了")
       if (!this.enableSelfCollision) {
         this.state = 0
+        setWrapedPaused(true)
       }
     } else if (this.checkIfCollideFood(this.food)) {
+      this.score += 1
       this.rawBody.push(tail)
       this.mapToGrids()
       if (this.rawBody.length === this.grids.length) {
         this.state = 2
+        setWrapedPaused(true)
         Modal.success({
           title: "过关",
           content: <React.Fragment>
             <div>哦，牛批</div>
             <div>那你是真的牛批</div>
+            <br />
+            <div>得分: {this.score}</div>
           </React.Fragment>,
           okText: "好的",
           onOk: () => {
             this.reinit()
-            this.render()
           },
         })
       } else {
@@ -366,11 +397,12 @@ class Snake {
         content: <React.Fragment>
           <div>胜败乃兵家常事</div>
           <div>少侠请重新来过</div>
+          <br />
+          <div>得分: {this.score}</div>
         </React.Fragment>,
         okText: "好的",
         onOk: () => {
           this.reinit()
-          this.render()
         },
       })
     }
@@ -393,18 +425,30 @@ class Snake {
       const [x, y] = rawItem
       if (x < 0) {
         rawItem[0] = this.xn - 1
-        if (!this.enableBorderCollision) { this.state = 0 }
+        if (!this.enableBorderCollision) {
+          this.state = 0
+          setWrapedPaused(true)
+        }
       } else if (x > this.xn - 1) {
         rawItem[0] = 0
-        if (!this.enableBorderCollision) { this.state = 0 }
+        if (!this.enableBorderCollision) {
+          this.state = 0
+          setWrapedPaused(true)
+        }
       }
 
       if (y < 0) {
         rawItem[1] = this.yn - 1
-        if (!this.enableBorderCollision) { this.state = 0 }
+        if (!this.enableBorderCollision) {
+          this.state = 0
+          setWrapedPaused(true)
+        }
       } else if (y > this.yn - 1) {
         rawItem[1] = 0
-        if (!this.enableBorderCollision) { this.state = 0 }
+        if (!this.enableBorderCollision) {
+          this.state = 0
+          setWrapedPaused(true)
+        }
       }
     })
     /* eslint-enable no-param-reassign */
@@ -421,58 +465,50 @@ class Snake {
     return food[0] === head[0] && food[1] === head[1]
   }
 
+  public mapToGrid(coords: Coords, type: GridType) {
+    const {
+      grids, xn, yn,
+    } = this
+    const [i, j] = coords
+    const n = GridItem.getOrderFromGrid(xn, yn, i, j)
+    const grid = grids[n]
+    if (grid) {
+      grid.type = type
+      return true
+    }
+    return false
+  }
+
   // 将当前的this.rawBody的状态映射到_grids中
   public mapToGrids() {
     const {
-      head, restBody, grids, xn, yn, food,
+      head, restBody, grids, food,
     } = this
-    const { getOrderFromGrid } = GridItem
 
     grids.forEach((gridItem) => {
       // eslint-disable-next-line no-param-reassign
       gridItem.type = GridType.Null
     })
 
+    // food必须在body前面, 先map
+    // 因为reinit的时候
     if (food) {
-      const [i, j] = food
-      const n = getOrderFromGrid(xn, yn, i, j)
-      grids[n].type = GridType.Food
+      this.mapToGrid(food, GridType.Food)
     }
 
     for (let k = 0, len = restBody.length; k < len; k += 1) {
-      const [i, j] = restBody[k]
-      const n = getOrderFromGrid(xn, yn, i, j)
-      const gridItem = grids[n]
-      if (gridItem) {
-        gridItem.type = GridType.Body
-      } else {
+      const result = this.mapToGrid(restBody[k], GridType.Body)
+      if (!result) {
         message.error("数组越界了, 已重新开局。")
         this.reinit()
-        this.render()
         return
       }
     }
-    // restBody.forEach(([i, j]) => {
-    //   const n = getOrderFromGrid(xn, yn, i, j)
-    //   const gridItem = grids[n]
-    //   if (gridItem) {
-    //     gridItem.type = GridType.Body
-    //   } else {
-    //     message.error("数组越界了, 已重新渲染。")
-    //     this.reinit()
-    //     this.render()
-    //   }
-    // })
 
-    const [i, j] = head
-    const n = getOrderFromGrid(xn, yn, i, j)
-    const gridItem = grids[n]
-    if (gridItem) {
-      gridItem.type = GridType.Head
-    } else {
+    const result = this.mapToGrid(head, GridType.Head)
+    if (!result) {
       message.error("数组越界了, 已重新开局。")
       this.reinit()
-      this.render()
     }
   }
 
@@ -482,12 +518,6 @@ class Snake {
     })
   }
 }
-
-const container = document.querySelector("#canvas-container") as HTMLDivElement
-const backCanvas = document.querySelector("#canvas-background") as HTMLCanvasElement
-const backCtx = backCanvas.getContext("2d") as CanvasRenderingContext2D
-const foreCanvas = document.querySelector("#canvas-foreground") as HTMLCanvasElement
-const foreCtx = foreCanvas.getContext("2d") as CanvasRenderingContext2D
 
 // 必须先将canvas resize到相应的尺寸, 然后再取width/height
 resizeToDisplaySize(backCanvas)
@@ -567,12 +597,14 @@ const onKeyDown = function onKeyDown(e: KeyboardEvent) {
     snake.curDir = dir
     snake.moveOneStep()
     lastTime = new Date().getTime()
-    run()
+    animate()
   }
 }
 
 const af = new AlloyFinger(container, {
   swipe: (e) => {
+    e.preventDefault()
+    e.stopPropagation()
     const { direction } = e
     const dir = {
       Left: Dir.Left,
@@ -585,15 +617,21 @@ const af = new AlloyFinger(container, {
       snake.curDir = dir
       snake.moveOneStep()
       lastTime = new Date().getTime()
-      run()
+      animate()
     }
   },
   tap: (e) => {
+    e.preventDefault()
+    e.stopPropagation()
     setWrapedPaused(!wrapedPaused.value)
     if (snake.curDir === Dir.None) {
       snake.curDir = Dir.Right
     }
   },
+})
+
+container.addEventListener("touchmove", (e) => {
+  e.preventDefault()
 })
 
 window.addEventListener("resize", initCanvas)
@@ -602,13 +640,38 @@ window.addEventListener("keydown", onKeyDown)
 initCanvas()
 setWrapedSpeed(5)
 setWrapedGridLevel(5)
-// setFoodNumber(1)
 animate()
 
 const { useState } = React
 
 export default function App() {
   const [poperVisible, setPoperVisible] = useState(false)
+
+  React.useEffect(() => {
+    Modal.info({
+      maskClosable: false,
+      title: "操作指南",
+      content: <React.Fragment>
+        <h3>0. 右上角有设置按钮</h3>
+        <h3>1. 移动端:</h3>
+        <ul>
+          <li>单击画布切换【暂停/开始】</li>
+          <li>上下左右滑动控制方向</li>
+        </ul>
+        <h3>2. PC端:</h3>
+        <ul>
+          <li>Space键切换【暂停/开始】</li>
+          <li>方向键、【WASD】键或小键盘【8456】均可以控制方向</li>
+        </ul>
+      </React.Fragment>,
+    })
+  }, [])
+
+  React.useEffect(() => {
+    if (poperVisible) {
+      setWrapedPaused(true)
+    }
+  }, [poperVisible])
 
   return <div>
     <Button
