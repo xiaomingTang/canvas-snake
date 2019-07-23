@@ -1,11 +1,12 @@
 .setting-button {
   position: fixed;
   top: 1em;
-  left: 1em;
+  right: 1em;
 }
 
 .setting-item {
-  margin-top: .5em;
+  padding: 2em 0;
+  border-bottom: 1px solid #c57f7f;
 }
 
 .label::after {
@@ -13,8 +14,24 @@
   margin-right: .5em;
 }
 
-.target {
-  &.block {
-    margin-right: 1em;
-  }
+.control-wrapper {
+  position: relative;
+  padding: 0 4em;
+}
+
+.abs {
+  position: absolute;
+  top: 0;
+  width: 3em;
+  transform: translateY(-0.5em);
+  line-height: 2em;
+  text-align: center;
+}
+
+.abs-left {
+  left: 1em;
+}
+
+.abs-right {
+  right: 1em;
 }

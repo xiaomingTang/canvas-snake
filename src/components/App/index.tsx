@@ -1,14 +1,22 @@
 // 1. 成绩系统
-// 2. 判定是否完成
-// 3. 判定是否碰壁、碰自身等
-// 4. 整体优化
+// 2. 整体优化
 import * as React from "react"
-import { Button, Slider, Switch } from "antd"
+import {
+  Button, Slider, Switch, Modal, message,
+} from "antd"
+import AlloyFinger from "alloyfinger"
 
 import { Poper } from "@Src/components/Poper/index"
 import { resizeToDisplaySize } from "@Src/utils/webgl-utils"
+import { nonActiveState } from "@Src/utils/index"
 
 import * as Styles from "./index.module.scss"
+
+const [wrapedEnableSelfCollision, setWrapedEnableSelfCollision] = nonActiveState(true)
+const [wrapedEnableBorderCollision, setWrapedEnableBorderCollision] = nonActiveState(true)
+const [wrapedSpeed, setWrapedSpeed] = nonActiveState(5)
+const [wrapedGridLevel, setWrapedGridLevel, addGridLevelChangedListener] = nonActiveState(5)
+const [wrapedPaused, setWrapedPaused] = nonActiveState(true)
 
 type Coords = [number, number]
 
@@ -22,13 +30,14 @@ enum GridType {
 
 const GridStylesMap: { [key in GridType]: string; } = {
   [GridType.Null]: "#ffffff",
-  [GridType.Body]: "#000000",
-  [GridType.Head]: "#ff0000",
+  [GridType.Body]: "#666666",
+  [GridType.Head]: "#ff3333",
   [GridType.Food]: "#66aaaa",
-  [GridType.Border]: "#dddddd",
+  [GridType.Border]: "#eeeeee",
 }
 
 enum Dir {
+  None = 0,
   Left = 2,
   Right = -2,
   Top = 3,
@@ -83,6 +92,18 @@ class GridBorder {
     public lineWidth: number = 3,
   ) {}
 
+  public resize(
+    uw: number, // unitWidth
+    uh: number, // unitHeight
+    xn: number, // x方向网格总数
+    yn: number, // y方向网格总数
+  ) {
+    this.uw = uw
+    this.uh = uh
+    this.xn = xn
+    this.yn = yn
+  }
+
   public get strokeStyle() {
     return GridStylesMap[this.type]
   }
@@ -106,7 +127,7 @@ class GridBorder {
         style: this.strokeStyle,
       })
     }
-    for (let j = 0; j <= this.xn; j += 1) {
+    for (let j = 0; j <= this.yn; j += 1) {
       drawLine({
         ctx,
         start: [0, j * this.uh],
@@ -179,21 +200,69 @@ class GridItem {
 }
 
 class Snake {
+  public static DefaultDir = Dir.None;
+
+  public state:
+      0 // 失败
+    | 1 // 进行中
+    | 2 // 通关
+    = 1;
+
   public food: Coords;
 
   public grids: GridItem[];
 
   public constructor(
+    public ctx: CanvasRenderingContext2D,
     public uw: number, // unitWidth
     public uh: number, // unitHeight
     public xn: number, // x方向网格总数
     public yn: number, // y方向网格总数
     public rawBody: Coords[] = [[0, 0]],
-    public curDir: Dir = Dir.Right,
+    public curDir: Dir = Snake.DefaultDir,
   ) {
     this.grids = this.nullGrids
     this.mapToGrids()
-    this.food = this.randomGeneFoodFromGrids()
+    // this.randomSetFoodFromGrids方法中已经初始化this.food了
+    // 本来这里是可以不用赋值的
+    // 只不过为了满足ts的语法规范, 勉强在这里赋一下值吧
+    this.food = this.randomSetFoodFromGrids()
+  }
+
+  public resize(
+    uw: number,
+    uh: number,
+    xn: number,
+    yn: number,
+  ) {
+    this.uw = uw
+    this.uh = uh
+
+    // 如果网格数发生了变化, 那就需要重新初始化了
+    if (!(xn === this.xn && yn === this.yn)) {
+      this.xn = xn
+      this.yn = yn
+      this.food = [0, 0]
+      this.grids = this.nullGrids
+      this.mapToGrids()
+      this.randomSetFoodFromGrids()
+    } else {
+      /* eslint-disable no-param-reassign */
+      this.grids.forEach((gridItem) => {
+        gridItem.uw = uw
+        gridItem.uh = uh
+      })
+      /* eslint-enable no-param-reassign */
+    }
+  }
+
+  public reinit() {
+    this.state = 1
+    this.curDir = Snake.DefaultDir
+    this.rawBody = [[0, 0]]
+    this.setFood(0, 0)
+    this.mapToGrids()
+    this.randomSetFoodFromGrids()
   }
 
   public get nullGrids() {
@@ -201,8 +270,8 @@ class Snake {
       uw, uh, xn, yn,
     } = this
     const grids = [] as GridItem[]
-    for (let j = 0; j < xn; j += 1) {
-      for (let i = 0; i < yn; i += 1) {
+    for (let j = 0; j < yn; j += 1) {
+      for (let i = 0; i < xn; i += 1) {
         grids.push(new GridItem(uw, uh, xn, yn, i, j, GridType.Null))
       }
     }
@@ -218,12 +287,23 @@ class Snake {
     return restBody
   }
 
-  public randomGeneFoodFromGrids() {
+  /* eslint-disable class-methods-use-this */
+  public get enableSelfCollision() {
+    return wrapedEnableSelfCollision.value
+  }
+
+  public get enableBorderCollision() {
+    return wrapedEnableBorderCollision.value
+  }
+  /* eslint-enable class-methods-use-this */
+
+  public randomSetFoodFromGrids() {
     const nullGrids = this.grids.filter(gridItem => gridItem.type === GridType.Null)
     const { length } = nullGrids
     const i = Math.floor(Math.random() * length)
     const foodGrid = nullGrids[i].clone()
     const { xi, yi } = foodGrid
+    this.setFood(xi, yi)
     return [xi, yi] as Coords
   }
 
@@ -253,20 +333,57 @@ class Snake {
     this.rawBody.unshift(newHead) // 将新的head推入body
     this.correct() // 修正rawBody
     const tail = this.rawBody.pop() as Coords
-    if (this.checkIfCrashBody()) {
+    if (this.checkIfCollideBody()) {
       console.error("撞自己身上了")
-    } else if (this.checkIfCrashFood(this.food)) {
+      if (!this.enableSelfCollision) {
+        this.state = 0
+      }
+    } else if (this.checkIfCollideFood(this.food)) {
       this.rawBody.push(tail)
       this.mapToGrids()
-      const newFood = this.randomGeneFoodFromGrids()
-      this.setFood(...newFood)
+      if (this.rawBody.length === this.grids.length) {
+        this.state = 2
+        Modal.success({
+          title: "过关",
+          content: <React.Fragment>
+            <div>哦，牛批</div>
+            <div>那你是真的牛批</div>
+          </React.Fragment>,
+          okText: "好的",
+          onOk: () => {
+            this.reinit()
+            this.render()
+          },
+        })
+      } else {
+        this.randomSetFoodFromGrids()
+      }
     }
     this.mapToGrids()
+    if (this.state === 0) {
+      Modal.error({
+        title: "失败",
+        content: <React.Fragment>
+          <div>胜败乃兵家常事</div>
+          <div>少侠请重新来过</div>
+        </React.Fragment>,
+        okText: "好的",
+        onOk: () => {
+          this.reinit()
+          this.render()
+        },
+      })
+    }
   }
 
   public setFood(i: number, j: number) {
-    this.food[0] = i
-    this.food[1] = j
+    if (this.food) {
+      this.food[0] = i
+      this.food[1] = j
+    } else {
+      this.food = [i, j]
+    }
+    this.grids[GridItem.getOrderFromGrid(this.xn, this.yn, i, j)].type = GridType.Food
   }
 
   // 当允许循环(没有墙)时, 修正this.rawBody
@@ -276,26 +393,30 @@ class Snake {
       const [x, y] = rawItem
       if (x < 0) {
         rawItem[0] = this.xn - 1
+        if (!this.enableBorderCollision) { this.state = 0 }
       } else if (x > this.xn - 1) {
         rawItem[0] = 0
+        if (!this.enableBorderCollision) { this.state = 0 }
       }
 
       if (y < 0) {
         rawItem[1] = this.yn - 1
+        if (!this.enableBorderCollision) { this.state = 0 }
       } else if (y > this.yn - 1) {
         rawItem[1] = 0
+        if (!this.enableBorderCollision) { this.state = 0 }
       }
     })
     /* eslint-enable no-param-reassign */
   }
 
-  public checkIfCrashBody() {
+  public checkIfCollideBody() {
     return !!this.restBody.find(item => (
       item[0] === this.head[0] && item[1] === this.head[1]
     ))
   }
 
-  public checkIfCrashFood(food: Coords) {
+  public checkIfCollideFood(food: Coords) {
     const head = this.rawBody[0]
     return food[0] === head[0] && food[1] === head[1]
   }
@@ -312,78 +433,120 @@ class Snake {
       gridItem.type = GridType.Null
     })
 
-    restBody.forEach(([i, j]) => {
-      const n = getOrderFromGrid(xn, yn, i, j)
-      grids[n].type = GridType.Body
-    })
-
     if (food) {
       const [i, j] = food
       const n = getOrderFromGrid(xn, yn, i, j)
       grids[n].type = GridType.Food
     }
 
+    for (let k = 0, len = restBody.length; k < len; k += 1) {
+      const [i, j] = restBody[k]
+      const n = getOrderFromGrid(xn, yn, i, j)
+      const gridItem = grids[n]
+      if (gridItem) {
+        gridItem.type = GridType.Body
+      } else {
+        message.error("数组越界了, 已重新开局。")
+        this.reinit()
+        this.render()
+        return
+      }
+    }
+    // restBody.forEach(([i, j]) => {
+    //   const n = getOrderFromGrid(xn, yn, i, j)
+    //   const gridItem = grids[n]
+    //   if (gridItem) {
+    //     gridItem.type = GridType.Body
+    //   } else {
+    //     message.error("数组越界了, 已重新渲染。")
+    //     this.reinit()
+    //     this.render()
+    //   }
+    // })
+
     const [i, j] = head
     const n = getOrderFromGrid(xn, yn, i, j)
-    grids[n].type = GridType.Head
+    const gridItem = grids[n]
+    if (gridItem) {
+      gridItem.type = GridType.Head
+    } else {
+      message.error("数组越界了, 已重新开局。")
+      this.reinit()
+      this.render()
+    }
   }
 
-  public render(ctx: CanvasRenderingContext2D) {
+  public render() {
     this.grids.forEach((gridItem) => {
-      gridItem.render(ctx)
+      gridItem.render(this.ctx)
     })
   }
 }
 
+const container = document.querySelector("#canvas-container") as HTMLDivElement
 const backCanvas = document.querySelector("#canvas-background") as HTMLCanvasElement
 const backCtx = backCanvas.getContext("2d") as CanvasRenderingContext2D
 const foreCanvas = document.querySelector("#canvas-foreground") as HTMLCanvasElement
 const foreCtx = foreCanvas.getContext("2d") as CanvasRenderingContext2D
 
-const { clientWidth: defaultWidth, clientHeight: defaultHeight } = backCanvas
-const XN = 25
-const YN = 25
-const UW = defaultWidth / XN
-const UH = defaultHeight / YN
-const DURATION = 500
-let lastTime = new Date().getTime()
-let paused = false
+// 必须先将canvas resize到相应的尺寸, 然后再取width/height
+resizeToDisplaySize(backCanvas)
+resizeToDisplaySize(foreCanvas)
 
-const snake = new Snake(UW, UH, XN, YN)
-const gridBorder = new GridBorder(UW, UH, XN, YN, 2)
+const { width: defaultWidth, height: defaultHeight } = backCanvas
+let globalXN = 25
+let globalYN = 25
+let globalUW = defaultWidth / globalXN
+let globalUH = defaultHeight / globalYN
+let lastTime = new Date().getTime()
+
+const snake = new Snake(foreCtx, globalUW, globalUH, globalXN, globalYN)
+const gridBorder = new GridBorder(globalUW, globalUH, globalXN, globalYN, 1)
+
+addGridLevelChangedListener((oldVal, newVal) => {
+  const { width, height } = backCanvas
+  globalXN = 2 + 3 * newVal
+  globalUW = width / globalXN
+  globalUH = globalUW
+  globalYN = Math.floor(height / globalUH)
+
+  foreCtx.clearRect(0, 0, foreCanvas.width, foreCanvas.height)
+  backCtx.clearRect(0, 0, backCanvas.width, backCanvas.height)
+
+  snake.resize(globalUW, globalUH, globalXN, globalYN)
+  gridBorder.resize(globalUW, globalUH, globalXN, globalYN)
+
+  snake.render()
+  gridBorder.render(backCtx)
+})
 
 const initCanvas = function initCanvas() {
-  const { clientWidth, clientHeight } = backCanvas
-  const uw = clientWidth / XN
-  const uh = clientHeight / YN
-  snake.uw = uw
-  snake.uh = uh
-  gridBorder.uw = uw
-  gridBorder.uh = uh
-  /* eslint-disable no-param-reassign */
-  snake.grids.forEach((gridItem) => {
-    gridItem.uw = uw
-    gridItem.uh = uh
-  })
-  /* eslint-enable no-param-reassign */
   resizeToDisplaySize(backCanvas)
   resizeToDisplaySize(foreCanvas)
-  snake.render(foreCtx)
+  const { width, height } = backCanvas
+  const uw = width / globalXN
+  const uh = height / globalYN
+  snake.resize(uw, uh, snake.xn, snake.yn)
+  gridBorder.resize(uw, uh, snake.xn, snake.yn)
+  snake.render()
   gridBorder.render(backCtx)
 }
 
 const run = () => {
   const curTime = new Date().getTime()
-  if (curTime - lastTime > DURATION) {
+  if (curTime - lastTime > 1000 / wrapedSpeed.value) {
     snake.moveOneStep()
     lastTime = curTime
+    if (snake.state !== 1) {
+      setWrapedPaused(true)
+    }
   }
   foreCtx.clearRect(0, 0, foreCanvas.width, foreCanvas.height)
-  snake.render(foreCtx)
+  snake.render()
 }
 
 const animate = () => {
-  if (!paused) {
+  if (!wrapedPaused.value) {
     run()
   }
   window.requestAnimationFrame(animate)
@@ -392,11 +555,15 @@ const animate = () => {
 const onKeyDown = function onKeyDown(e: KeyboardEvent) {
   const { keyCode } = e
   if (keyCode === 32) {
-    paused = !paused
+    setWrapedPaused(!wrapedPaused.value)
+    if (snake.curDir === Dir.None) {
+      snake.curDir = Dir.Right
+    }
     return
   }
   const dir = keyCodeMapToDir[keyCode]
   if (dir && snake.validateTurn(dir)) {
+    setWrapedPaused(false)
     snake.curDir = dir
     snake.moveOneStep()
     lastTime = new Date().getTime()
@@ -404,15 +571,45 @@ const onKeyDown = function onKeyDown(e: KeyboardEvent) {
   }
 }
 
+const af = new AlloyFinger(container, {
+  swipe: (e) => {
+    const { direction } = e
+    const dir = {
+      Left: Dir.Left,
+      Right: Dir.Right,
+      Up: Dir.Top,
+      Down: Dir.Bottom,
+    }[direction]
+    if (dir && snake.validateTurn(dir)) {
+      setWrapedPaused(false)
+      snake.curDir = dir
+      snake.moveOneStep()
+      lastTime = new Date().getTime()
+      run()
+    }
+  },
+  tap: (e) => {
+    setWrapedPaused(!wrapedPaused.value)
+    if (snake.curDir === Dir.None) {
+      snake.curDir = Dir.Right
+    }
+  },
+})
+
 window.addEventListener("resize", initCanvas)
 window.addEventListener("keydown", onKeyDown)
 
 initCanvas()
+setWrapedSpeed(5)
+setWrapedGridLevel(5)
+// setFoodNumber(1)
 animate()
 
+const { useState } = React
 
 export default function App() {
-  const [poperVisible, setPoperVisible] = React.useState(false)
+  const [poperVisible, setPoperVisible] = useState(false)
+
   return <div>
     <Button
       className={Styles.settingButton}
@@ -423,26 +620,37 @@ export default function App() {
       }}
     />
     <Poper state={[poperVisible, setPoperVisible]}>
-      <div>
+      <div style={{ padding: "1em" }}>
         <div className={Styles.settingItem}>
           <span className={Styles.label}>允许碰撞自身</span>
-          <Switch defaultChecked />
+          <Switch defaultChecked={snake.enableSelfCollision} onChange={setWrapedEnableSelfCollision} />
         </div>
+
         <div className={Styles.settingItem}>
           <span className={Styles.label}>允许碰撞墙壁</span>
-          <Switch defaultChecked />
+          <Switch defaultChecked={snake.enableBorderCollision} onChange={setWrapedEnableBorderCollision} />
         </div>
+
         <div className={Styles.settingItem}>
-          <span className={Styles.label}>速度</span>
-          <Slider className={`${Styles.target} ${Styles.block}`} defaultValue={30} min={10} max={100} />
+          <span className={Styles.label}>速度(level)</span>
+          <div className={Styles.controlWrapper}>
+            <div className={`${Styles.absLeft} ${Styles.abs}`}>1</div>
+            <Slider defaultValue={wrapedSpeed.value} min={1} max={10} onChange={(value) => {
+              setWrapedSpeed(value as number)
+            }} />
+            <div className={`${Styles.absRight} ${Styles.abs}`}>10</div>
+          </div>
         </div>
+
         <div className={Styles.settingItem}>
-          <span className={Styles.label}>网格数</span>
-          <Slider className={`${Styles.target} ${Styles.block}`} defaultValue={30} min={10} max={100} step={10} />
-        </div>
-        <div className={Styles.settingItem}>
-          <span className={Styles.label}>同时存在食物数</span>
-          <Slider className={`${Styles.target} ${Styles.block}`} defaultValue={30} min={10} max={100} step={10} />
+          <span className={Styles.label}>网格数(level)</span>
+          <div className={Styles.controlWrapper}>
+            <div className={`${Styles.absLeft} ${Styles.abs}`}>1</div>
+            <Slider defaultValue={wrapedGridLevel.value} min={1} max={10} onChange={(value) => {
+              setWrapedGridLevel(value as number)
+            }} />
+            <div className={`${Styles.absRight} ${Styles.abs}`}>10</div>
+          </div>
         </div>
       </div>
     </Poper>

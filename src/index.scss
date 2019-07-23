@@ -11,6 +11,8 @@ body {
 }
 .canvas-container {
   position: relative;
+  border: 10px solid rgba(222, 222, 222, .7);
+  border-radius: 6px;
 }
 #canvas-background {
   position: absolute;
