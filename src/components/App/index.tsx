@@ -601,41 +601,6 @@ const onKeyDown = function onKeyDown(e: KeyboardEvent) {
   }
 }
 
-/*
-const af = new AlloyFinger(container, {
-  swipe: (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    const { direction } = e
-    const dir = {
-      Left: Dir.Left,
-      Right: Dir.Right,
-      Up: Dir.Top,
-      Down: Dir.Bottom,
-    }[direction]
-    if (dir && snake.validateTurn(dir)) {
-      setWrapedPaused(false)
-      snake.curDir = dir
-      snake.moveOneStep()
-      lastTime = new Date().getTime()
-      animate()
-    }
-  },
-  tap: (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setWrapedPaused(!wrapedPaused.value)
-    if (snake.curDir === Dir.None) {
-      snake.curDir = Dir.Right
-    }
-  },
-})
-
-container.addEventListener("touchmove", (e) => {
-  e.preventDefault()
-})
-*/
-
 const ee = new TouchPolyfill(container)
 let lastDir: Dir = Dir.None
 const swipeDirMap: {
@@ -666,6 +631,8 @@ ee.addEventListener("swipe", (e, swipeDir) => {
     animate()
   }
 })
+
+container.addEventListener("touchstart", e => e.preventDefault())
 
 window.addEventListener("resize", initCanvas)
 window.addEventListener("keydown", onKeyDown)
