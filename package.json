@@ -14,7 +14,8 @@
     "alloyfinger": "^0.1.16",
     "antd": "^3.20.0",
     "react": "^16.8.6",
-    "react-dom": "^16.8.6"
+    "react-dom": "^16.8.6",
+    "wolfy87-eventemitter": "^5.2.6"
   },
   "devDependencies": {
     "@types/antd": "^1.0.0",

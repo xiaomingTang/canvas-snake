@@ -4,11 +4,11 @@ import * as React from "react"
 import {
   Button, Slider, Switch, Modal, message,
 } from "antd"
-import AlloyFinger from "alloyfinger"
 
 import { Poper } from "@Src/components/Poper/index"
 import { resizeToDisplaySize } from "@Src/utils/webgl-utils"
 import { nonActiveState } from "@Src/utils/index"
+import TouchPolyfill, { Dir as SwipeDir } from "@Src/utils/touch-polyfill"
 
 import * as Styles from "./index.module.scss"
 
@@ -601,6 +601,7 @@ const onKeyDown = function onKeyDown(e: KeyboardEvent) {
   }
 }
 
+/*
 const af = new AlloyFinger(container, {
   swipe: (e) => {
     e.preventDefault()
@@ -632,6 +633,38 @@ const af = new AlloyFinger(container, {
 
 container.addEventListener("touchmove", (e) => {
   e.preventDefault()
+})
+*/
+
+const ee = new TouchPolyfill(container)
+let lastDir: Dir = Dir.None
+const swipeDirMap: {
+  [key in SwipeDir]?: Dir.Left | Dir.Right | Dir.Top | Dir.Bottom
+} = {
+  Bottom: Dir.Bottom,
+  Left: Dir.Left,
+  Top: Dir.Top,
+  Right: Dir.Right,
+}
+
+ee.addEventListener("tap", () => {
+  setWrapedPaused(!wrapedPaused.value)
+  if (snake.curDir === Dir.None) {
+    snake.curDir = Dir.Right
+  }
+  lastDir = Dir.None
+})
+
+ee.addEventListener("swipe", (e, swipeDir) => {
+  const dir = swipeDirMap[swipeDir]
+  if (dir && dir !== lastDir && snake.validateTurn(dir)) {
+    lastDir = dir
+    setWrapedPaused(false)
+    snake.curDir = dir
+    snake.moveOneStep()
+    lastTime = new Date().getTime()
+    animate()
+  }
 })
 
 window.addEventListener("resize", initCanvas)
