@@ -113,12 +113,48 @@ type SwipeEventTag = "swipe"
 type EventTag = TapEventTag | SwipeEventTag
 
 type TapEventHandler = (e: TouchEvent) => void
-type SwipeEventHandler = (e: TouchEvent, dir: Dir) => void
+type SwipeEventHandler = (e: TouchEvent, dir: Dir, angle: number) => void
 type EventHandler = TapEventHandler | SwipeEventHandler
 
-interface AddEventListener {
+interface HandleEventListener {
+  (tag: RegExp, handler: EventHandler): EventEmitter;
   (tag: TapEventTag, handler: TapEventHandler): EventEmitter;
   (tag: SwipeEventTag, handler: SwipeEventHandler): EventEmitter;
+}
+
+interface MultipleEvents {
+  "tap"?: TapEventHandler | TapEventHandler[];
+  "swipe"?: SwipeEventHandler | SwipeEventHandler[];
+}
+
+interface HandleEventListeners {
+  (tag: RegExp, handlers: EventHandler[]): EventEmitter;
+  (tag: TapEventTag, handlers: TapEventHandler[]): EventEmitter;
+  (tag: SwipeEventTag, handlers: SwipeEventHandler[]): EventEmitter;
+  (events: MultipleEvents): EventEmitter;
+}
+
+interface ManipulateEventListeners {
+  (doRemove: boolean, tag: RegExp, handlers: EventHandler[]): EventEmitter;
+  (doRemove: boolean, tag: TapEventTag, handlers: TapEventHandler[]): EventEmitter;
+  (doRemove: boolean, tag: SwipeEventTag, handlers: SwipeEventHandler[]): EventEmitter;
+  (doRemove: boolean, events: MultipleEvents): EventEmitter;
+}
+
+type TapEmitArgs = [TouchEvent]
+type SwipeEmitArgs = [TouchEvent, Dir, number]
+type EmitArgs = TapEmitArgs | SwipeEmitArgs
+
+interface EmitEvent {
+  (tag: RegExp, args: EmitArgs): EventEmitter;
+  (tag: TapEventTag, args: TapEmitArgs): EventEmitter;
+  (tag: SwipeEventTag, args: SwipeEmitArgs): EventEmitter;
+}
+
+interface Emit {
+  (tag: RegExp, ...args: EmitArgs): EventEmitter;
+  (tag: TapEventTag, ...args: TapEmitArgs): EventEmitter;
+  (tag: SwipeEventTag, ...args: SwipeEmitArgs): EventEmitter;
 }
 
 export default class TouchPolyfill extends EventEmitter {
@@ -151,6 +187,7 @@ export default class TouchPolyfill extends EventEmitter {
   }
 
   private onTouchStart = (e: TouchEvent) => {
+    console.log("onTouchStart")
     if (e.touches.length === 1) {
       this.tapAble = true
       const { clientX, clientY } = e.touches[0]
@@ -159,32 +196,35 @@ export default class TouchPolyfill extends EventEmitter {
   }
 
   private onTouchMove = (e: TouchEvent) => {
+    console.log("onTouchMove")
     if (e.touches.length === 1) {
       this.tapAble = false
       const { clientX, clientY } = e.touches[0]
       this.curPoint.set(clientX, clientY)
-      const { direction, length } = this.detPoint
+      const { direction, length, angle } = this.detPoint
       if (length > this.minLen) {
         this.startPoint.set(clientX, clientY)
-        this.dispatchEvent("swipe", [e, direction])
+        this.emitEvent("swipe", [e, direction, angle])
       }
     }
   }
 
   private onTouchCancel = () => {
+    console.log("onTouchCancel")
     this.startPoint.clear()
     this.curPoint.clear()
   }
 
   private onTouchEnd = (e: TouchEvent) => {
+    console.log("onTouchEnd")
     if (e.changedTouches.length === 1) {
       const { clientX, clientY } = e.changedTouches[0]
       this.curPoint.set(clientX, clientY)
-      const { direction, length } = this.detPoint
+      const { direction, length, angle } = this.detPoint
       if (length > this.minLen) {
-        this.dispatchEvent("swipe", [e, direction])
+        this.emitEvent("swipe", [e, direction, angle])
       } else if (this.tapAble && this.startPoint.approEqual(this.curPoint, this.approVal)) {
-        this.dispatchEvent("tap", [e])
+        this.emitEvent("tap", [e])
       }
       this.startPoint.clear()
       this.curPoint.clear()
@@ -211,12 +251,123 @@ export default class TouchPolyfill extends EventEmitter {
     element.addEventListener("touchcancel", this.onTouchCancel)
   }
 
-  public addEventListener = ((tag: EventTag, handler: EventHandler) => {
-    super.addListener(tag, handler)
-    return this
-  }) as AddEventListener
-
-  private dispatchEvent(tag: EventTag, data: unknown[]) {
-    this.emitEvent(tag, data)
+  public destroy() {
+    const { element } = this
+    element.removeEventListener("touchstart", this.onTouchStart)
+    element.removeEventListener("touchmove", this.onTouchMove)
+    element.removeEventListener("touchend", this.onTouchEnd)
+    element.removeEventListener("touchcancel", this.onTouchCancel)
   }
+
+  // 这儿super.addListener是一个重载函数, 识别不了复合变量(tag: RegExp | EventTag), vscode总报错, 勉强这么搞了, 如有大佬修复最好
+  // 其实功能和super.addListener一模一样, 只是将接口进行了一定的类型限制
+  public addListener: HandleEventListener = (tag: RegExp | EventTag, handler: EventHandler) => {
+    if (tag instanceof RegExp) {
+      super.addListener(tag, handler)
+    } else {
+      super.addListener(tag, handler)
+    }
+    return this
+  }
+
+  public removeListener: HandleEventListener = (tag: RegExp | EventTag, handler: EventHandler) => {
+    if (tag instanceof RegExp) {
+      super.removeListener(tag, handler)
+    } else {
+      super.removeListener(tag, handler)
+    }
+    return this
+  }
+
+  public addOnceListener: HandleEventListener = (tag: RegExp | EventTag, handler: EventHandler) => {
+    if (tag instanceof RegExp) {
+      super.addOnceListener(tag, handler)
+    } else {
+      super.addOnceListener(tag, handler)
+    }
+    return this
+  }
+
+  public defineEvent(tag: EventTag) {
+    super.defineEvent(tag)
+    return this
+  }
+
+  public defineEvents(tags: EventTag[]) {
+    super.defineEvents(tags)
+    return this
+  }
+
+  public addListeners: HandleEventListeners = (tag: RegExp | EventTag | MultipleEvents, handlers?: EventHandler[]) => {
+    if (tag instanceof RegExp) {
+      super.addListeners(tag, handlers as EventHandler[])
+    } else if (tag instanceof Object) {
+      super.addListeners(tag)
+    } else {
+      super.addListeners(tag, handlers as EventHandler[])
+    }
+    return this
+  }
+
+  public removeListeners: HandleEventListeners = (tag: RegExp | EventTag | MultipleEvents, handlers?: EventHandler[]) => {
+    if (tag instanceof RegExp) {
+      super.removeListeners(tag, handlers as EventHandler[])
+    } else if (tag instanceof Object) {
+      super.removeListeners(tag)
+    } else {
+      super.removeListeners(tag, handlers as EventHandler[])
+    }
+    return this
+  }
+
+  public manipulateListeners: ManipulateEventListeners = (doRemove: boolean, tag: RegExp | EventTag | MultipleEvents, handlers?: EventHandler[]) => {
+    if (tag instanceof RegExp) {
+      super.manipulateListeners(doRemove, tag, handlers as EventHandler[])
+    } else if (tag instanceof Object) {
+      super.manipulateListeners(doRemove, tag)
+    } else {
+      super.manipulateListeners(doRemove, tag, handlers as EventHandler[])
+    }
+    return this
+  }
+
+  public emitEvent: EmitEvent = (tag: RegExp | EventTag, args: EmitArgs) => {
+    if (tag instanceof RegExp) {
+      super.emitEvent(tag, args)
+    } else {
+      super.emitEvent(tag, args)
+    }
+    return this
+  }
+
+  public emit: Emit = (tag: RegExp | EventTag, ...args: EmitArgs) => {
+    if (tag instanceof RegExp) {
+      super.emit(tag, ...args)
+    } else {
+      super.emit(tag, ...args)
+    }
+    return this
+  }
+
+  public removeEvent: {
+    (tag?: EventTag): EventEmitter;
+    (tag?: RegExp): EventEmitter;
+  } = (tag?: RegExp | EventTag) => {
+    if (tag instanceof RegExp) {
+      super.removeEvent(tag)
+    } else {
+      super.removeEvent(tag)
+    }
+    return this
+  }
+
+  public on = this.addListener
+
+  public once = this.addOnceListener
+
+  public off = this.removeListener
+
+  public trigger = this.emitEvent
+
+  public removeAllListeners = this.removeEvent
 }

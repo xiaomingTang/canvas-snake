@@ -35,3 +35,12 @@
 .abs-right {
   right: 1em;
 }
+
+.footer {
+  position: fixed;
+  bottom: .5em;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: .8em;
+  color: #a9a9a9;
+}

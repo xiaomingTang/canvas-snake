@@ -5,3 +5,4 @@ export const controlWrapper: string;
 export const abs: string;
 export const absLeft: string;
 export const absRight: string;
+export const footer: string;

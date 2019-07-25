@@ -40,6 +40,7 @@ export { default as EyeInvisibleOutline } from "@ant-design/icons/lib/outline/Ey
 export { default as EyeOutline } from "@ant-design/icons/lib/outline/EyeOutline"
 export { default as QuestionOutline } from "@ant-design/icons/lib/outline/QuestionOutline"
 export { default as QuestionCircleOutline } from "@ant-design/icons/lib/outline/QuestionCircleOutline"
+export { default as CopyrightOutline } from "@ant-design/icons/lib/outline/CopyrightOutline"
 
 export { default as CloseCircleFill } from "@ant-design/icons/lib/fill/CloseCircleFill"
 export { default as CloseSquareFill } from "@ant-design/icons/lib/fill/CloseSquareFill"

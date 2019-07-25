@@ -2,7 +2,7 @@
 // 2. 整体优化
 import * as React from "react"
 import {
-  Button, Slider, Switch, Modal, message,
+  Button, Slider, Switch, Modal, message, Icon,
 } from "antd"
 
 import { Poper } from "@Src/components/Poper/index"
@@ -202,7 +202,9 @@ class GridItem {
   }
 
   public static getOrderFromGrid(xn: number, yn: number, xi: number, yi: number) {
-    return yi * xn + xi
+    return xi < xn && yi < yn
+      ? yi * xn + xi
+      : -1
   }
 }
 
@@ -254,11 +256,13 @@ class Snake {
       const gridType = this.grids[0].type
       this.grids = this.nullGrids
       this.setFood(0, 0)
-      this.mapToGrids()
-      this.randomSetFoodFromGrids()
-      this.mapToGrid([0, 0], gridType)
-      this.mapToGrid(this.food, GridType.Food)
-      this.render()
+      const result = this.mapToGrids()
+      if (result) {
+        this.randomSetFoodFromGrids()
+        this.mapToGrid([0, 0], gridType)
+        this.mapToGrid(this.food, GridType.Food)
+        this.render()
+      }
     } else {
       /* eslint-disable no-param-reassign */
       this.grids.forEach((gridItem) => {
@@ -283,15 +287,6 @@ class Snake {
     this.render()
   }
 
-  public get score() {
-    return this.rawScore
-  }
-
-  public set score(val: number) {
-    this.rawScore = val
-    scoreElem.innerText = `score: ${val}`
-  }
-
   public get nullGrids() {
     const {
       uw, uh, xn, yn,
@@ -303,6 +298,15 @@ class Snake {
       }
     }
     return grids
+  }
+
+  public get score() {
+    return this.rawScore
+  }
+
+  public set score(val: number) {
+    this.rawScore = val
+    scoreElem.innerText = `score: ${val}`
   }
 
   public get head() {
@@ -357,11 +361,13 @@ class Snake {
     default:
       return
     }
+    this.mapToGrid(this.head, GridType.Body)
     this.rawBody.unshift(newHead) // 将新的head推入body
     this.correct() // 修正rawBody
+    this.mapToGrid(this.head, GridType.Head)
     const tail = this.rawBody.pop() as Coords
+    this.mapToGrid(tail, GridType.Null)
     if (this.checkIfCollideBody()) {
-      console.error("撞自己身上了")
       if (!this.enableSelfCollision) {
         this.state = 0
         setWrapedPaused(true)
@@ -369,7 +375,8 @@ class Snake {
     } else if (this.checkIfCollideFood(this.food)) {
       this.score += 1
       this.rawBody.push(tail)
-      this.mapToGrids()
+      this.mapToGrid(tail, GridType.Body)
+      // this.mapToGrids()
       if (this.rawBody.length === this.grids.length) {
         this.state = 2
         setWrapedPaused(true)
@@ -388,9 +395,9 @@ class Snake {
         })
       } else {
         this.randomSetFoodFromGrids()
+        this.mapToGrid(this.food, GridType.Food)
       }
     }
-    this.mapToGrids()
     if (this.state === 0) {
       Modal.error({
         title: "失败",
@@ -415,43 +422,38 @@ class Snake {
     } else {
       this.food = [i, j]
     }
-    this.grids[GridItem.getOrderFromGrid(this.xn, this.yn, i, j)].type = GridType.Food
   }
 
   // 当允许循环(没有墙)时, 修正this.rawBody
   public correct() {
-    /* eslint-disable no-param-reassign */
-    this.rawBody.forEach((rawItem) => {
+    const { rawBody, enableBorderCollision } = this
+    const { length } = rawBody
+    if (!enableBorderCollision && this.checkBeforeCorrectIfCollideBorder()) {
+      setWrapedPaused(true)
+      this.state = 0
+      return
+    }
+    for (let i = 0; i < length; i += 1) {
+      const rawItem = rawBody[i]
       const [x, y] = rawItem
       if (x < 0) {
         rawItem[0] = this.xn - 1
-        if (!this.enableBorderCollision) {
-          this.state = 0
-          setWrapedPaused(true)
-        }
       } else if (x > this.xn - 1) {
         rawItem[0] = 0
-        if (!this.enableBorderCollision) {
-          this.state = 0
-          setWrapedPaused(true)
-        }
       }
 
       if (y < 0) {
         rawItem[1] = this.yn - 1
-        if (!this.enableBorderCollision) {
-          this.state = 0
-          setWrapedPaused(true)
-        }
       } else if (y > this.yn - 1) {
         rawItem[1] = 0
-        if (!this.enableBorderCollision) {
-          this.state = 0
-          setWrapedPaused(true)
-        }
       }
-    })
-    /* eslint-enable no-param-reassign */
+    }
+  }
+
+  public checkBeforeCorrectIfCollideBorder() {
+    const { head, xn, yn } = this
+    const [x, y] = head
+    return x < 0 || x >= xn || y < 0 || y >= yn
   }
 
   public checkIfCollideBody() {
@@ -501,7 +503,7 @@ class Snake {
       if (!result) {
         message.error("数组越界了, 已重新开局。")
         this.reinit()
-        return
+        return false
       }
     }
 
@@ -509,7 +511,9 @@ class Snake {
     if (!result) {
       message.error("数组越界了, 已重新开局。")
       this.reinit()
+      return false
     }
+    return true
   }
 
   public render() {
@@ -612,7 +616,8 @@ const swipeDirMap: {
   Right: Dir.Right,
 }
 
-ee.addEventListener("tap", () => {
+ee.addListener("tap", () => {
+  console.log("---tap---")
   setWrapedPaused(!wrapedPaused.value)
   if (snake.curDir === Dir.None) {
     snake.curDir = Dir.Right
@@ -620,9 +625,9 @@ ee.addEventListener("tap", () => {
   lastDir = Dir.None
 })
 
-ee.addEventListener("swipe", (e, swipeDir) => {
+ee.addListener("swipe", (e, swipeDir) => {
   const dir = swipeDirMap[swipeDir]
-  if (dir && dir !== lastDir && snake.validateTurn(dir)) {
+  if (dir && (wrapedPaused.value || dir !== lastDir) && snake.validateTurn(dir)) {
     lastDir = dir
     setWrapedPaused(false)
     snake.curDir = dir
@@ -667,7 +672,7 @@ export default function App() {
     })
   }, [])
 
-  React.useEffect(() => {
+  React.useLayoutEffect(() => {
     if (poperVisible) {
       setWrapedPaused(true)
     }
@@ -717,5 +722,15 @@ export default function App() {
         </div>
       </div>
     </Poper>
+
+    <a
+      className={Styles.footer}
+      href="https://xiaomingtang.github.io/canvas-snake/examples/"
+      target="_blank"
+      rel="noopener noreferrer"
+    >
+      <Icon type="copyright" />
+      xiaoming
+    </a>
   </div>
 }
